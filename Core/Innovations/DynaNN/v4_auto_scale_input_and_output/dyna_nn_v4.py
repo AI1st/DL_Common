@@ -1,34 +1,58 @@
 import inspect
-import pickle
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-# from Common.function.NNFrameWork import NNFrameWork, cpu, gpu
-from NNFrameWorkV2 import NNFrameWorkV2, cpu, gpu
-from Common.Core.Innovations.IntentionalLearing.global_gcc import RelpuGlob
-from Common.Core.Innovations.TentativeSGD.TSGD import TentativeSGD
+from Common.Core.Universal.NNFrameWork import NNFrameWork, cpu, gpu
 from Common.Core.CustomLayers.Activations.Laplace import LaplaceActivation
+from Common.Core.CustomLayers.Activations.Relpu import RelpuGlob
 from d2l import torch as d2l
 import matplotlib.pyplot as plt
 
 
-# class LaplaceActivation(nn.Module):
-#     """
-#     Laplace激活函数(sin指数衰减激活函数)
-#     """
-#
-#     def __init__(self, features):
-#         super().__init__()
-#         self.a = nn.Parameter(torch.ones(features))
-#
-#     def forward(self, x):
-#         view_shape = [1] * x.dim()
-#         view_shape[1] = -1
-#
-#         a = self.a.view(view_shape)
-#
-#         return torch.exp(-torch.abs(a * x)) * torch.sin(x)
+class RegionalActivation(nn.Module):
+    """
+    经过实验发现，效果不如laplace
+    """
+
+    def __init__(self, features, bias=True):
+        """
+        Initialize the LaplaceActivation layer.
+
+        Args:
+            features (int): The number of input features.
+            bias (bool, optional): If True, adds a learnable bias to the activation function. Defaults to True.
+
+        Attributes:
+            bias (bool): Whether to add a learnable bias to the activation function.
+            a (nn.Parameter): A learnable parameter representing the scaling factor for the input.
+            b (nn.Parameter, optional): A learnable bias parameter, only added if bias is True.
+        """
+        super().__init__()
+        self.bias = bias
+        self.a = nn.Parameter(torch.ones(features))
+        if bias:
+            self.b = nn.Parameter(torch.randn(features))
+
+    def forward(self, x):
+        view_shape = [1] * x.dim()
+        view_shape[1] = -1
+
+        a = self.a.view(view_shape)
+        if self.bias:
+            b = self.b.view(view_shape)
+            return torch.exp(-torch.abs(a * x + b)) * x
+
+        return torch.exp(-torch.abs(a * x)) * x
+
+
+class Log(nn.Module):
+    def __init__(self, features=None):
+        super().__init__()
+
+    def forward(self, x):
+        mask1 = (x > 0).float()
+        mask2 = (x <= 0).float()
+        return torch.log(1 + x * mask1) - torch.log(1 - mask2 * x)
 
 
 class SingleHiddenLayer1d(nn.Module):
@@ -36,8 +60,7 @@ class SingleHiddenLayer1d(nn.Module):
     单隐层增量神经网络单元
     """
 
-    def __init__(self, input_size, hidden_size, output_size,
-                 activation1=LaplaceActivation, activation2=LaplaceActivation):
+    def __init__(self, input_size, hidden_size, output_size, activation1, activation2):
         super().__init__()
         self.hidden_size = hidden_size
         self.bn_in = nn.BatchNorm1d(input_size)
@@ -83,12 +106,12 @@ class DynaSInit(nn.Module):
     增量神经网络初始化单元
     """
 
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, activation=LaplaceActivation):
         super().__init__()
         self.linear1 = nn.Linear(input_size, hidden_size, bias=False)
         self.linear2 = nn.Linear(hidden_size, output_size)
         self.bn = nn.BatchNorm1d(hidden_size)
-        self.activation = LaplaceActivation(hidden_size)
+        self.activation = activation(hidden_size)
 
     def forward(self, x):
         middle = self.linear1(x)
@@ -96,17 +119,17 @@ class DynaSInit(nn.Module):
         return output, torch.cat([x, middle], dim=1)
 
 
-class DynamicNN1dTSGD(NNFrameWorkV2):
+class DynamicNN1d(NNFrameWork):
     """
-    动态神经网络总体架构v2: 使用了试探梯度下降法
+    动态神经网络总体架构v1
     """
 
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, init_activation=LaplaceActivation):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.layers = nn.ModuleList()
-        self.layers.append(DynaSInit(input_size, hidden_size, output_size))
+        self.layers.append(DynaSInit(input_size, hidden_size, output_size, init_activation))
         self.bandwidth = hidden_size + output_size
 
     def forward(self, x):
@@ -127,7 +150,6 @@ class DynamicNN1dTSGD(NNFrameWorkV2):
         self.bandwidth -= self.layers[-1].hidden_size
 
     def set_step_optimizer(self, lr=0.01, momentum=0.0, clip_value=float("inf"), weight_decay=0, optimizer="default"):
-        self.optim_mode = "sgd"
         self.clip_value = clip_value
         if optimizer == "default":
             self.optimizer = optim.SGD(self.layers[-1].parameters(), lr=lr, momentum=momentum,
@@ -136,10 +158,22 @@ class DynamicNN1dTSGD(NNFrameWorkV2):
         else:
             self.optimizer = optimizer
 
-    def set_step_optimizer_tsgd(self, lr_start=1.0, lr_k=0.1, lr_num=3, soft_p=9):
-        self.optim_mode = "tsgd"
-        self.optimizer = TentativeSGD(self.layers[-1].parameters(),
-                                      lr_start=lr_start, lr_k=lr_k, lr_num=lr_num, soft_p=soft_p)
+    def set_step_optimizer_regional(self, lr=0.01, lr_decrease=0.5, max_layers=3,
+                                    momentum=0.0, clip_value=float("inf"), weight_decay=0,
+                                    optimizer="default"):
+        self.clip_value = clip_value
+
+        modules = list(self.children())[0]
+        num_layers_to_optimize = min(max_layers, len(modules))
+        layers_to_optimize = modules[-1:-num_layers_to_optimize - 1:-1]
+        params_to_optimize = [{'params': layer.parameters(), 'lr': lr * (lr_decrease ** i)}
+                              for i, layer in enumerate(layers_to_optimize)]
+        if optimizer == "default":
+            self.optimizer = optim.SGD(params_to_optimize, lr=lr, momentum=momentum,
+                                       weight_decay=weight_decay)
+            # self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=momentum)
+        else:
+            self.optimizer = optimizer
 
 
 def plot_fitting_result(net, x, y):
@@ -161,7 +195,7 @@ def plot_fitting_result(net, x, y):
 
 def dyna_train(net, a1, a2, hidden_size, data_iter, lr, epochs, x_to_fit, y_to_fit):
     """
-    动态训练神经网络
+    动态训练神经网络(训练时仅训练单层)
     :param net: 网络
     :param a1: 激活函数1
     :param a2: 激活函数2
@@ -180,11 +214,10 @@ def dyna_train(net, a1, a2, hidden_size, data_iter, lr, epochs, x_to_fit, y_to_f
     return net.loss_history[-1]
 
 
-def dyna_train_tsgd(net, a1, a2, hidden_size, data_iter,
-                    lr_start, lr_k, lr_num, soft_p,
-                    epochs, x_to_fit, y_to_fit):
+def dyna_train_partial(net, a1, a2, hidden_size, data_iter, lr, epochs, x_to_fit, y_to_fit,
+                       lr_decrease=0.5, max_layers=3):
     """
-    动态训练神经网络
+    动态训练神经网络(训练时同时训练多层)
     :param net: 网络
     :param a1: 激活函数1
     :param a2: 激活函数2
@@ -197,7 +230,7 @@ def dyna_train_tsgd(net, a1, a2, hidden_size, data_iter,
     :return:
     """
     net.add_layer(hidden_size, a1, a2)
-    net.set_step_optimizer_tsgd(lr_start=lr_start, lr_k=lr_k, lr_num=lr_num, soft_p=soft_p)
+    net.set_step_optimizer_regional(lr=lr, lr_decrease=lr_decrease, max_layers=max_layers)
     net.train_fixed(data_iter, epochs=epochs, plot_hist=True)
     plot_fitting_result(net, x_to_fit, y_to_fit)
     return net.loss_history[-1]
@@ -210,42 +243,62 @@ if __name__ == "__main__":
     x = torch.linspace(-3, 3, 100).reshape(-1, 1)
     noise = torch.randn(*x.shape)
     x_outer = torch.linspace(-6, 6, 1000).reshape(-1, 1)
-    y = 4.2 * (x + 1) ** 2 + 1.1 + noise + 1 * torch.randn(*x.shape) + 10 * torch.sin(x * 15)
+    # y = 4.2 * (x + 1) ** 2 + 1.1 + noise + 1 * torch.randn(*x.shape) + 10 * torch.sin(x * 15)
+    # y = 4.2 * (x + 1) ** 2 + 1.1 + 15 * torch.sin(x * 3) + noise + 20 * (x > 0).float() - 10 * (x > 1).float()
+    y = (20 * (x > 0).float() - 10 * (x > 1).float() + 20 * x - 2 * x ** 2) * 80 / 120
+    y = torch.sin(3 * x) * 40 / 3
     y_outer = 4.2 * (x_outer + 1) ** 2 + 1.1 + 1 * torch.randn(*x_outer.shape) + 10 * torch.sin(x_outer * 15)
     dataSet = Data.TensorDataset(x, y)
     data_iter = Data.DataLoader(dataSet, batch_size=100, shuffle=True)
 
     # 初始化动态神经网络
-    dyna_nn = DynamicNN1dTSGD(1, 10, 1)
-    dyna_nn.set_step_optimizer_tsgd(0.01, 0.5, 3, 3)
+    dyna_nn = DynamicNN1d(1, 10, 1, LaplaceActivation)
+    dyna_nn.set_step_optimizer(lr=0.01)
     dyna_nn.set_criterion(nn.MSELoss())
     dyna_nn.set_device(gpu())
 
     # 动态神经网络初始化单元训练
-    dyna_nn.train_fixed(data_iter, 300, plot_hist=True)
+    dyna_nn.train_fixed(data_iter, epochs=100, plot_hist=True)
     plot_fitting_result(dyna_nn, x, y)
-    print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第一次训练
-    dyna_train_tsgd(dyna_nn, LaplaceActivation, LaplaceActivation, 10, data_iter,
-                    0.01, 0.5, 3, 3, 500, x_to_fit=x, y_to_fit=y)
-    plot_fitting_result(dyna_nn, x, y)
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 10, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.2, max_layers=1)
+
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第二次训练
-    dyna_train_tsgd(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter,
-                    0.01, 0.5, 3, 3, 500, x_to_fit=x, y_to_fit=y)
-    plot_fitting_result(dyna_nn, x, y)
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.2, max_layers=1)
+
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第三次训练
-    dyna_train_tsgd(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter,
-                    0.01, 0.5, 3, 3, 500, x_to_fit=x, y_to_fit=y)
-    plot_fitting_result(dyna_nn, x, y)
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.2, max_layers=1)
+
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第四次训练
-    dyna_train_tsgd(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter,
-                    0.01, 0.5, 3, 3, 500, x_to_fit=x, y_to_fit=y)
-    plot_fitting_result(dyna_nn, x, y)
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.1, max_layers=1)
+
+    print(dyna_nn.evaluate_loss(data_iter))
+
+    # 动态神经网络第五次训练
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.1, max_layers=1)
+
+    print(dyna_nn.evaluate_loss(data_iter))
+
+    # 动态神经网络第六次训练
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.1, max_layers=1)
+
+    print(dyna_nn.evaluate_loss(data_iter))
+
+    # 动态神经网络第七次训练
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+                       lr_decrease=0.1, max_layers=1)
+
     print(dyna_nn.evaluate_loss(data_iter))

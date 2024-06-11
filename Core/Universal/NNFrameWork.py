@@ -168,8 +168,11 @@ class NNFrameWork(nn.Module):
             nn.utils.clip_grad_norm_(self.parameters(), self.clip_value)  # 梯度截断
         self.optimizer.step()
 
-    def predict(self, x):
+    def predict(self, x, no_grad=False):
         self.eval()
+        if no_grad:
+            with torch.no_grad():
+                return self(x)
         return self(x)
 
     def evaluate_loss(self, data_iter):
@@ -185,6 +188,21 @@ class NNFrameWork(nn.Module):
                 loss_list.append(loss.cpu())
             ##################evaluate################
         return np.mean(loss_list)
+
+    def evaluate_accuracy(self, data_iter):
+        self.eval()  # 将模型设置为评估模式
+        correct = 0
+        total = 0
+        with torch.no_grad():  # 在评估模式下不需要计算梯度
+            for data in data_iter:
+                inputs, labels = data[0].to(self.device), data[1].to(self.device)  # 移动数据到设备（如GPU）
+                outputs = self.predict(inputs, no_grad=True)
+                _, predicted = torch.max(outputs, 1)  # 获取每行最大值的位置（即预测的类别）
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        accuracy = correct / total
+        return accuracy
 
     def plot_hist(self):
         plt.figure()

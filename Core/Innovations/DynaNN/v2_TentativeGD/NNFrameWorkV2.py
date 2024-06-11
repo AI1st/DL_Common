@@ -6,8 +6,8 @@ import numpy as np
 import pickle
 from matplotlib import pyplot as plt
 from matplotlib_inline import backend_inline
-from Common.function.machine_learning import plot
-from Common.function_version_iteration.TentativeSGD.TSGD import TentativeSGD
+from Common.Core.Visualization.graph_plot import plot
+from Common.Core.Innovations.TentativeSGD.TSGD import TentativeSGD
 
 
 def init_weights(m):

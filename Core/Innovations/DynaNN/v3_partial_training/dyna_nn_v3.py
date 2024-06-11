@@ -219,37 +219,37 @@ if __name__ == "__main__":
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第二次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 10, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.2, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第三次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.2, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第四次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.1, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第五次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 50, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 20, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.1, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第六次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 50, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.1, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
 
     # 动态神经网络第七次训练
-    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 60, data_iter, 0.01, 1000, x, y,
+    dyna_train_partial(dyna_nn, LaplaceActivation, LaplaceActivation, 30, data_iter, 0.01, 1000, x, y,
                        lr_decrease=0.1, max_layers=1)
 
     print(dyna_nn.evaluate_loss(data_iter))
