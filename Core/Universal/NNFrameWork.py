@@ -58,8 +58,9 @@ class NNFrameWork(nn.Module):
         _self_update
 
     >模型衡量/应用方法:
-    predict
+    predict(with gradient/without gradient)
     evaluate_loss
+    evaluate_accuracy
 
     >模型信息输入输出:
     plot_hist
@@ -241,6 +242,6 @@ class NNFrameWork(nn.Module):
     def set_criterion(self, criterion):
         self.criterion = criterion
 
-    def set_device(self, device):
+    def set_device(self, device=cpu()):
         self.device = device
         self.to(self.device)

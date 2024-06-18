@@ -243,10 +243,10 @@ if __name__ == "__main__":
     x = torch.linspace(-3, 3, 100).reshape(-1, 1)
     noise = torch.randn(*x.shape)
     x_outer = torch.linspace(-6, 6, 1000).reshape(-1, 1)
-    # y = 4.2 * (x + 1) ** 2 + 1.1 + noise + 1 * torch.randn(*x.shape) + 10 * torch.sin(x * 15)
-    # y = 4.2 * (x + 1) ** 2 + 1.1 + 15 * torch.sin(x * 3) + noise + 20 * (x > 0).float() - 10 * (x > 1).float()
-    y = (20 * (x > 0).float() - 10 * (x > 1).float() + 20 * x - 2 * x ** 2) * 80 / 120
-    y = torch.sin(3 * x) * 40 / 3
+    y = 4.2 * (x + 1) ** 2 + 1.1 + noise + 1 * torch.randn(*x.shape) + 10 * torch.sin(x * 15)
+    # y = (4.2 * (x + 1) ** 2 + 1.1 + 15 * torch.sin(x * 3) + noise + 20 * (x > 0).float() - 10 * (x > 1).float()) / 100
+    # y = (20 * (x > 0).float() - 10 * (x > 1).float() + 20 * x - 2 * x ** 2) * 80 / 120
+    # y = torch.sin(3 * x) * 40 / 3 * 2
     y_outer = 4.2 * (x_outer + 1) ** 2 + 1.1 + 1 * torch.randn(*x_outer.shape) + 10 * torch.sin(x_outer * 15)
     dataSet = Data.TensorDataset(x, y)
     data_iter = Data.DataLoader(dataSet, batch_size=100, shuffle=True)
