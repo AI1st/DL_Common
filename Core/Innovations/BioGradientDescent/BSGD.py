@@ -24,7 +24,8 @@ class BioSGD(optim.Optimizer):
                     grads[j] = param.grad
 
             # 计算全局缩放比例
-            gamma = group['delta_W_max'] / max(grad.abs().max().item() for grad in grads if grad is not None)
+            max_grad = max(grad.abs().max().item() for grad in grads if grad is not None)
+            gamma = group['delta_W_max'] / max_grad if max_grad != 0 else 1.0
 
             for i, group in enumerate(self.param_groups):
                 alphas = []
@@ -43,6 +44,61 @@ class BioSGD(optim.Optimizer):
                     param.add_(-alpha * delta_w_update)
 
                 self.alpha_hist.append(alphas)  # 增加alphas到记录
+        return loss
+
+    def reset_hy_params(self, delta_W_max, beta, deactivation_rate):
+        defaults = dict(delta_W_max=delta_W_max, beta=beta, deactivation_rate=deactivation_rate)
+        super().__init__(self.params, defaults)
+        # 重新加载历史数据
+        self.delta_w_sum = [torch.zeros_like(p) for p in self.param_groups[0]['params']]
+        self.alpha_hist = []
+
+
+class BioSGDV2(optim.Optimizer):  # 修改了alpha_hist生成和params赋值的形式，防止了优化器消耗过多的显存
+    def __init__(self, params, delta_W_max, beta, deactivation_rate,
+                 alpha_hist=False, params_store=False):
+        defaults = dict(delta_W_max=delta_W_max, beta=beta, deactivation_rate=deactivation_rate)
+        super().__init__(params, defaults)
+        self.delta_w_sum = [torch.zeros_like(p) for p in self.param_groups[0]['params']]  # 接收的历史更新指令总和，并非实际更新值
+        self.alpha_hist = [] if alpha_hist is True else None
+        self.params = params if params_store is True else None
+
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+
+        with torch.no_grad():
+            grads = [None] * len(self.delta_w_sum)
+
+            for i, group in enumerate(self.param_groups):
+                for j, param in enumerate(group['params']):
+                    if param.grad is None:
+                        continue
+                    grads[j] = param.grad
+
+            # 计算全局缩放比例
+            max_grad = max(grad.abs().max().item() for grad in grads if grad is not None)
+            gamma = group['delta_W_max'] / max_grad if max_grad != 0 else 1.0
+
+            for i, group in enumerate(self.param_groups):
+                alphas = []
+                for j, param in enumerate(group['params']):
+                    if param.grad is None:
+                        continue
+                    delta_w_update = gamma * grads[j]
+                    self.delta_w_sum[j] += delta_w_update.abs()
+
+                    # 计算神经元活性系数
+                    alpha = 1 / (1 + group['beta'] * self.delta_w_sum[j])
+                    # 注意：这里的delta_w_sum并非神经元更新的历史记录总和，而是其接受的更新指令总和
+
+                    # 神经元失活判定
+                    alpha = alpha * (alpha > group['deactivation_rate']).float()
+                    alphas.append(alpha)  # 增加alpha到记录
+
+                    param.add_(-alpha * delta_w_update)
+
+                if self.alpha_hist is not None:
+                    self.alpha_hist.append(alphas)  # 增加alphas到记录
         return loss
 
     def reset_hy_params(self, delta_W_max, beta, deactivation_rate):
