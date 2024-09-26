@@ -1,3 +1,4 @@
+# 基于torch 2.1.1
 import torch
 from torch import nn
 from torch import optim
@@ -192,12 +193,14 @@ class NNFrameWork(nn.Module, metaclass=ForwardSwitchMeta):
         loss_threshold = None  # loss阈值，用于判断迭代退出条件
         if other_options is not None:
             loss_threshold = other_options['loss_threshold']
+        total_length = len(data_iter)  # 获取迭代器的长度(以避免tqdm超界)
 
         for epoch in range(epochs):
             if show_progress:
                 data_iter = tqdm(data_iter,
                                  desc=f'Epoch {epoch + 1}/{epochs}',
-                                 leave=False)
+                                 leave=False,
+                                 total=total_length)
             for i, (x, y) in enumerate(data_iter):
                 x = x.to(self.device)
                 y = y.to(self.device)
@@ -217,7 +220,7 @@ class NNFrameWork(nn.Module, metaclass=ForwardSwitchMeta):
                     avg_loss = np.mean(self.temp_loss_history)
                     data_iter.set_postfix(loss=f'{avg_loss:.4f}')
                 # epoch的平均学习记录添加
-                if i == len(data_iter) - 1:
+                if i == total_length - 1:  # 使用从原始迭代器得到的长度，防止程序递归调用tqdm修改后的迭代器函数__len__
                     if not show_progress:
                         avg_loss = np.mean(self.temp_loss_history)
                     self.loss_history.append(avg_loss)
