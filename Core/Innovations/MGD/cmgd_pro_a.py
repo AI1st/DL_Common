@@ -5,7 +5,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 
-class CMGDProAW(optim.Optimizer):
+class CMGDProA(optim.Optimizer):
     def __init__(self,
                  params,
                  lr,
@@ -92,12 +92,13 @@ class CMGDProAW(optim.Optimizer):
                     )
                     state['step'] = 0  # 用于偏差校正
 
+                # 第一次状态参数更新
+                if group['weight_decay'] != 0:
+                    grad = grad.add(p.data, alpha=group['weight_decay'])
+
                 state['grad_hist'] = grad
 
                 # 执行梯度下降
-                # 应用权重衰减
-                if group['weight_decay'] != 0:
-                    grad = grad.add(p.data, alpha=group['weight_decay'])
                 # 计算权重变化量
                 weight_change = -state['lr'] * grad
                 # # 计算截断阈值增益
@@ -108,7 +109,6 @@ class CMGDProAW(optim.Optimizer):
                 clamped_weight_change = torch.clamp(weight_change, -threshold, threshold)
                 # 权重更新
                 p.data.add_(clamped_weight_change)
-
                 # 更新学习率
                 mask = (clamped_weight_change != weight_change)  # mask中true的部分代表被截断的部分
                 new_lr = torch.where(mask, torch.abs(clamped_weight_change / grad),
@@ -153,6 +153,9 @@ class CMGDProAW(optim.Optimizer):
                     )
                     state['step'] = 0  # 用于偏差校正
 
+                if group['weight_decay'] != 0:  # 计算考虑了weight_decay后的梯度
+                    grad = grad.add(p.data, alpha=group['weight_decay'])
+
                 # 计算学习率的梯度
                 lr_grad = - state['grad_hist'] * grad
                 lr_grad = torch.sqrt(torch.abs(lr_grad)) * torch.sign(lr_grad)
@@ -180,9 +183,6 @@ class CMGDProAW(optim.Optimizer):
                 state['lr'].data = torch.clamp(state['lr'].data, min=group['lr_min'], max=group['lr_max'])
 
                 # 执行梯度下降
-                # 应用权重衰减
-                if group['weight_decay'] != 0:  # 计算考虑了weight_decay后的梯度
-                    grad = grad.add(p.data, alpha=group['weight_decay'])
                 # 计算权重变化量
                 weight_change = -state['lr'] * grad
                 # 计算截断阈值
@@ -191,7 +191,6 @@ class CMGDProAW(optim.Optimizer):
                 clamped_weight_change = torch.clamp(weight_change, -threshold, threshold)
                 # 权重更新
                 p.data.add_(clamped_weight_change)
-
                 # 更新学习率
                 mask = (clamped_weight_change != weight_change)  # mask中true的部分代表被截断的部分
                 new_lr = torch.where(mask, torch.abs(clamped_weight_change / grad),
